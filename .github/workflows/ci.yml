@@ -22,7 +22,7 @@ jobs:
 
     steps:
     - name: Checkout
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
 
     - name: Install .NET
       uses: actions/setup-dotnet@v5
@@ -50,7 +50,7 @@ jobs:
       run: dotnet test .\StyleMeter.sln --configuration Release --no-build -v minimal
 
     - name: Store artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: StyleMeter
         path: .\StyleMeter\bin\x64\Release\StyleMeter\*
