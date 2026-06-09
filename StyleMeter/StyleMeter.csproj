@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Dalamud.NET.Sdk/15.0.0">
+  <PropertyGroup>
+    <Version>0.1.0</Version>
+    <AssemblyVersion>0.1.0.0</AssemblyVersion>
+    <FileVersion>0.1.0.0</FileVersion>
+    <InformationalVersion>0.1.0</InformationalVersion>
+    <AssemblyName>StyleMeter</AssemblyName>
+    <RootNamespace>StyleMeter</RootNamespace>
+    <PackageId>StyleMeter</PackageId>
+    <Title>Style Meter</Title>
+    <Authors>ThePurplePigeon</Authors>
+    <Company>ThePurplePigeon</Company>
+    <Product>Style Meter</Product>
+    <Description>A Dalamud API 15 plugin that displays a local-player PvE GCD streak meter.</Description>
+    <RepositoryUrl>https://github.com/ThePurplePigeon/style-meter</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageProjectUrl>https://github.com/ThePurplePigeon/style-meter</PackageProjectUrl>
+    <PackageLicenseExpression>AGPL-3.0-or-later</PackageLicenseExpression>
+    <PackageTags>dalamud;ffxiv;combat;hud;uptime;combo;meter</PackageTags>
+    <IsPackable>false</IsPackable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>StyleMeter.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+</Project>

@@ -1,0 +1,58 @@
+name: Style Meter CI
+
+on:
+  pull_request:
+    branches: [ master, main ]
+  push:
+    branches: [ master, main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: style-meter-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: windows-2022
+    timeout-minutes: 20
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v5
+
+    - name: Install .NET
+      uses: actions/setup-dotnet@v5
+      with:
+        dotnet-version: 10.0.x
+        cache: true
+        cache-dependency-path: |
+          StyleMeter/packages.lock.json
+
+    - name: Download Dalamud
+      run: |
+        Invoke-WebRequest -Uri https://goatcorp.github.io/dalamud-distrib/latest.zip -OutFile latest.zip
+        Expand-Archive -Force latest.zip "$env:AppData\XIVLauncher\addon\Hooks\dev"
+
+    - name: Restore
+      run: dotnet restore .\StyleMeter.sln
+
+    - name: Verify formatting
+      run: dotnet format .\StyleMeter.sln --verify-no-changes --verbosity minimal --no-restore
+
+    - name: Build
+      run: dotnet build .\StyleMeter.sln --configuration Release --no-restore
+
+    - name: Test
+      run: dotnet test .\StyleMeter.sln --configuration Release --no-build -v minimal
+
+    - name: Store artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: StyleMeter
+        path: .\StyleMeter\bin\x64\Release\StyleMeter\*
+        if-no-files-found: error
+        retention-days: 1

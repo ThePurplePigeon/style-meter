@@ -1,0 +1,15 @@
+{
+  "Author": "ThePurplePigeon",
+  "Name": "Style Meter",
+  "Punchline": "A PvE GCD streak HUD.",
+  "Description": "Shows a local-player PvE GCD streak meter with oGCD count, best combo, and rank. Style Meter does not automate actions, parse damage, or send network requests.",
+  "RepoUrl": "https://github.com/ThePurplePigeon/style-meter",
+  "ApplicableVersion": "any",
+  "Tags": [
+    "combat",
+    "hud",
+    "uptime",
+    "combo",
+    "meter"
+  ]
+}

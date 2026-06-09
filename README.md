@@ -1,78 +1,143 @@
-> ⚠️ **Don't click Fork!**
-> 
-> This is a GitHub Template repo. If you want to use this for a plugin, [use this template][new-repo] to make a new repo!
->
-> ![image](https://github.com/goatcorp/SamplePlugin/assets/16760685/d9732094-e1ed-4769-a70b-58ed2b92580c)
+# Style Meter
 
-# SamplePlugin
+Style Meter is a Dalamud API 15 plugin that shows a small HUD for your PvE GCD streak.
 
-[![Use This Template badge](https://img.shields.io/badge/Use%20This%20Template-0?logo=github&labelColor=grey)][new-repo]
+It reads action effects and recast state instead of keypresses. Button spam, invalid presses, and oGCD weaving do not increase the GCD combo or rank.
 
+## Scope
 
-Simple example plugin for Dalamud.
+- Tracks the local player only.
+- Tracks PvE GCD actions, including replacement, generated, casted, and dance actions.
+- Tracks oGCD abilities as a separate count. They do not advance rank or extend the combo.
+- Ignores items, PvP actions, invalid actions, and non-player actions.
+- Shows combo count, chain count, best combo, rank, and remaining time.
+- Does not automate actions, parse damage, choose actions, or use network calls.
 
-This is not designed to be the simplest possible example, but it is also not designed to cover everything you might want to do. For more detailed questions, come ask in [the Discord](https://discord.gg/holdshift).
+## How It Works
 
-## Main Points
+1. Hooks `ActionEffectHandler.Receive` to observe action effects.
+2. Calls the original game function first.
+3. Filters events to local-player PvE actions.
+4. Classifies GCD actions using cooldown group `58` and action-category fallback.
+5. Reads the active action or shared-GCD recast, with adjusted/Lumina fallbacks.
+6. Holds the timer while a tracked hardcast is in progress.
+7. Continues the combo if the next GCD lands before `lastGcdTime + recast + grace`.
+8. Ends and briefly fades the combo once the timer expires.
 
-* Simple functional plugin
-  * Slash command
-  * Main UI
-  * Settings UI
-  * Image loading
-  * Plugin json
-* Simple, slightly-improved plugin configuration handling
-* Project organization
-  * Copies all necessary plugin files to the output directory
-    * Does not copy dependencies that are provided by dalamud
-    * Output directory can be zipped directly and have exactly what is required
-  * Hides data files from visual studio to reduce clutter
-    * Also allows having data files in different paths than VS would usually allow if done in the IDE directly
+The code is split into small layers: `Interop/` observes game state, `Actions/` resolves actions, `Tracking/` owns combo state, and `Windows/` draws the UI.
 
+## Ranks
 
-The intention is less that any of this is used directly in other projects, and more to show how similar things can be done.
+| Rank | Combo Count | Base-GCD Landmark |
+| ---- | ----------- | ----------------- |
+| D    | 1           | Below `20s` |
+| C    | 8           | `20s` |
+| B    | 16          | `40s` |
+| A    | 25          | About `1m` |
+| S    | 50          | About `2m` |
+| SS   | 100         | About `4m` |
+| SSS  | 152         | `6m20s` burst/pot window |
 
-## How To Use
+## Commands
 
-### Getting Started
+- `/stylemeter` toggles the overlay.
+- `/stylemeter config` opens plugin settings.
+- `/stylemeter debug` toggles detailed debug logging.
+- `/stylemeter diag` writes current tracking state to the Dalamud log.
 
-To begin, [clone this template repository][new-repo] to your own GitHub account. This will automatically bring in everything you need to get a jumpstart on development. You do not need to fork this repository unless you intend to contribute modifications to it.
+## Settings
 
-Be sure to also check out the [Dalamud Developer Docs][dalamud-docs] for helpful information about building your own plugin. The Developer Docs includes helpful information about all sorts of things, including [how to submit][submit] your newly-created plugin to the official repository. Assuming you use this template repository, the provided project build configuration and license are already chosen to make everything a breeze.
+| Setting | Default | Notes |
+| ------- | ------- | ----- |
+| Show overlay | On | Controls whether the meter is drawn. |
+| Lock overlay position | Off | Prevents accidental dragging. |
+| Overlay scale | `1.40` | Clamped from `0.75` to `2.50`. |
+| Grace threshold | `0.50s` | Extra time after adjusted recast before the combo ends. |
+| Debug logging | Off | Emits observed GCD details to the Dalamud log. |
 
-[new-repo]: https://github.com/new?template_name=SamplePlugin&template_owner=goatcorp
-[dalamud-docs]: https://dalamud.dev
-[submit]: https://dalamud.dev/plugin-publishing/submission
+## Behavior
 
-### Prerequisites
+Style Meter is local and display-only. It does not execute actions, automate gameplay, read party or alliance combat output, upload telemetry, call external services, or save combat history.
 
-SamplePlugin assumes all the following prerequisites are met:
+## Building
 
-* XIVLauncher, FINAL FANTASY XIV, and Dalamud have all been installed and the game has been run with Dalamud at least once.
-* XIVLauncher is installed to its default directories and configurations.
-  * If a custom path is required for Dalamud's dev directory, it must be set with the `DALAMUD_HOME` environment variable.
-* A .NET Core 8 SDK has been installed and configured, or is otherwise available. (In most cases, the IDE will take care of this.)
+Prerequisites:
 
-### Building
+- XIVLauncher, Final Fantasy XIV, and Dalamud installed and launched at least once.
+- Dalamud dev files available at the default XIVLauncher path, or through `DALAMUD_HOME`.
+- .NET 10 SDK.
 
-1. Open up `SamplePlugin.sln` in your C# editor of choice (likely [Visual Studio](https://visualstudio.microsoft.com) or [JetBrains Rider](https://www.jetbrains.com/rider/)).
-2. Build the solution. By default, this will build a `Debug` build, but you can switch to `Release` in your IDE.
-3. The resulting plugin can be found at `SamplePlugin/bin/x64/Debug/SamplePlugin.dll` (or `Release` if appropriate.)
+Build:
 
-### Activating in-game
+```powershell
+dotnet build .\StyleMeter.sln -v minimal
+```
 
-1. Launch the game and use `/xlsettings` in chat or `xlsettings` in the Dalamud Console to open up the Dalamud settings.
-    * In here, go to `Experimental`, and add the full path to the `SamplePlugin.dll` to the list of Dev Plugin Locations.
-2. Next, use `/xlplugins` (chat) or `xlplugins` (console) to open up the Plugin Installer.
-    * In here, go to `Dev Tools > Installed Dev Plugins`, and the `SamplePlugin` should be visible. Enable it.
-3. You should now be able to use `/pmycommand` (chat) or `pmycommand` (console)!
+Run tests:
 
-Note that you only need to add it to the Dev Plugin Locations once (Step 1); it is preserved afterwards. You can disable, enable, or load your plugin on startup through the Plugin Installer.
+```powershell
+dotnet test .\StyleMeter.sln -v minimal
+```
 
-### Reconfiguring for your own uses
+The debug plugin DLL is written to:
 
-Replace all references to `SamplePlugin` in all the files and filenames with your desired name, then start building the plugin of your dreams. You'll figure it out 😁
+```text
+.\StyleMeter\bin\x64\Debug\StyleMeter.dll
+```
 
-Dalamud will load the JSON file (by default, `SamplePlugin/SamplePlugin.json`) next to your DLL and use it for metadata, including the description for your plugin in the Plugin Installer. Make sure to update this with information relevant to _your_ plugin!
+## Loading as a Dev Plugin
 
-All participation in this repository is governed by our [Code of Conduct](https://dalamud.dev/code-of-conduct). If you used AI tooling at any point, review the [AI Usage Policy](https://dalamud.dev/plugin-publishing/ai-policy) and disclose your level of AI use. Entirely AI-generated submissions will be rejected, and undisclosed AI use may result in a ban.
+1. Launch the game with Dalamud enabled.
+2. Open `/xlsettings`.
+3. Go to `Experimental`.
+4. Add the full path to `StyleMeter.dll` under Dev Plugin Locations.
+5. Open `/xlplugins`.
+6. Enable `Style Meter` from `Dev Tools > Installed Dev Plugins`.
+
+Debug builds generate the dev manifest before compiling the DLL, which reduces automatic-reload races while Dalamud is watching the output folder. If a dev reload still fails with an error about `StyleMeter.json` being used by another process, wait for the build to finish and reload the plugin manually; disabling automatic reloading for the dev plugin avoids that race during rapid iteration.
+
+## In-Game Verification
+
+Recommended manual checks:
+
+- Use a target dummy and confirm consecutive GCDs increment the combo.
+- Weave oGCDs and confirm they update the CHAIN/weave display without incrementing the GCD combo or rank.
+- Break a combo during combat and confirm BEST keeps the highest GCD combo reached.
+- Leave combat and confirm BEST resets to zero/idle.
+- Spam a GCD button and confirm duplicate cooldown events do not inflate the combo.
+- Run `/stylemeter diag` and confirm the dev log reports player state and hook diagnostics.
+- Wait past adjusted recast plus grace and confirm the combo ends.
+- Change jobs, zones, log out, die, or enter PvP and confirm state clears safely.
+- Reload/unload the plugin and confirm there are no lingering callbacks or crashes.
+
+## Publishing
+
+Before submitting to the official Dalamud plugin repository, review the current Dalamud submission process, plugin restrictions, and metadata guidance.
+
+## Contributing
+
+Use `CONTRIBUTING.md` for branch, validation, and review expectations. CI runs format, build, and test on pushes and pull requests.
+
+## Project Layout
+
+```text
+StyleMeter/
+  Plugin.cs                 Dalamud plugin entrypoint and command wiring.
+  Configuration.cs          Persisted plugin settings.
+  Actions/                  Action lookup, classification, and recast fallback.
+  Interop/                  Dalamud hook, framework tick, player state, and cast-state adapters.
+  Tracking/                 Combo state, snapshots, and diagnostics.
+  Windows/                  ImGui overlay and configuration windows.
+
+StyleMeter.Tests/
+  *Tests.cs                 Unit tests for combo behavior, action resolution, recast fallback, UI math, and crash prevention.
+```
+
+## References
+
+- [Dalamud API 15](https://dalamud.dev/versions/v15/)
+- [Dalamud plugin metadata](https://dalamud.dev/plugin-development/plugin-metadata/)
+- [Dalamud technical considerations](https://dalamud.dev/plugin-development/technical-considerations/)
+- [Dalamud plugin restrictions](https://dalamud.dev/plugin-publishing/restrictions/)
+- [Dalamud submission process](https://dalamud.dev/plugin-publishing/submission/)
+- [FFXIVClientStructs ActionManager](https://ffxiv.wildwolf.dev/api/FFXIVClientStructs.FFXIV.Client.Game.ActionManager.html)
