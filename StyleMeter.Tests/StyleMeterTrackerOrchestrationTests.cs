@@ -36,6 +36,28 @@ public sealed class StyleMeterTrackerOrchestrationTests
     }
 
     [Fact]
+    public void Null_header_action_effect_is_skipped_before_resolution()
+    {
+        using var harness = TrackerHarness.Create();
+
+        harness.ActionEffectSource.Raise(ObservedActionEffect.NullHeader(0xCAFE));
+
+        AssertNoResolutionAttempt(harness);
+        Assert.Contains("null header", harness.Diagnostics.SkippedReasons.Single());
+    }
+
+    [Fact]
+    public void Non_action_kind_is_skipped_before_resolution()
+    {
+        using var harness = TrackerHarness.Create();
+
+        harness.ActionEffectSource.Raise(SelfAction(100) with { ActionKind = StyleMeterActionKind.Other });
+
+        AssertNoResolutionAttempt(harness);
+        Assert.Contains("not action kind Action", harness.Diagnostics.SkippedReasons.Single());
+    }
+
+    [Fact]
     public void Disabled_tracking_state_clears_existing_combo()
     {
         using var harness = TrackerHarness.Create();
@@ -190,6 +212,13 @@ public sealed class StyleMeterTrackerOrchestrationTests
     private static ObservedActionEffect SelfAction(uint actionId)
     {
         return new ObservedActionEffect(0xCAFE, StyleMeterActionKind.Action, actionId, 0, 1, 0.6f, true);
+    }
+
+    private static void AssertNoResolutionAttempt(TrackerHarness harness)
+    {
+        Assert.Equal(0, harness.Tracker.CurrentSnapshot.ComboCount);
+        Assert.Equal(0, harness.ActionResolver.CallCount);
+        Assert.Equal(0, harness.RecastProvider.CallCount);
     }
 
     private sealed class TrackerHarness : IDisposable

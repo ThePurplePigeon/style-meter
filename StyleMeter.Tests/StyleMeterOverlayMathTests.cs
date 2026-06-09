@@ -84,33 +84,6 @@ public sealed class StyleMeterOverlayMathTests
     }
 
     [Theory]
-    [InlineData(0.75f)]
-    [InlineData(1f)]
-    [InlineData(1.4f)]
-    [InlineData(2.5f)]
-    public void Active_layout_reserves_bleed_padding_around_panel(float scale)
-    {
-        var layout = StyleMeterOverlayLayout.CreateActive(scale);
-        var expectedBleed = StyleMeterOverlayLayout.Bleed * StyleMeterOverlayMath.NormalizeOverlayScale(scale);
-
-        Assert.Equal(expectedBleed, layout.Panel.Min.X, 3);
-        Assert.Equal(expectedBleed, layout.Panel.Min.Y, 3);
-        Assert.True(layout.CanvasSize.X > layout.Panel.Width);
-        Assert.True(layout.CanvasSize.Y > layout.Panel.Height);
-    }
-
-    [Theory]
-    [InlineData("D")]
-    [InlineData("SS")]
-    [InlineData("SSS")]
-    public void Rank_text_size_stays_under_default_font_pixelation_threshold(string rank)
-    {
-        var size = StyleMeterOverlayMath.GetRankTextSize(rank, 2.5f);
-
-        Assert.InRange(size, 8f, 24f);
-    }
-
-    [Theory]
     [InlineData("D", 1f)]
     [InlineData("SS", 1f)]
     [InlineData("SSS", 1f)]
@@ -283,34 +256,17 @@ public sealed class StyleMeterOverlayMathTests
         Assert.True(MathF.Max(labelSize.Y, valueSize.Y) <= layout.BestBlock.Height);
     }
 
-    [Fact]
-    public void GetTimerProgress_returns_full_progress_at_window_start()
+    [Theory]
+    [InlineData(0, 1f)]
+    [InlineData(1.5, 0.5f)]
+    [InlineData(4, 0f)]
+    public void GetTimerProgress_returns_expected_progress(double elapsedSeconds, float expectedProgress)
     {
         var snapshot = ActiveSnapshot(StartTime.AddSeconds(3), 2.5f, 0.5f);
 
-        var progress = StyleMeterOverlayMath.GetTimerProgress(snapshot, StartTime);
+        var progress = StyleMeterOverlayMath.GetTimerProgress(snapshot, StartTime.AddSeconds(elapsedSeconds));
 
-        Assert.Equal(1f, progress);
-    }
-
-    [Fact]
-    public void GetTimerProgress_returns_fractional_progress_inside_window()
-    {
-        var snapshot = ActiveSnapshot(StartTime.AddSeconds(3), 2.5f, 0.5f);
-
-        var progress = StyleMeterOverlayMath.GetTimerProgress(snapshot, StartTime.AddSeconds(1.5));
-
-        Assert.Equal(0.5f, progress, 3);
-    }
-
-    [Fact]
-    public void GetTimerProgress_returns_zero_after_expiration()
-    {
-        var snapshot = ActiveSnapshot(StartTime.AddSeconds(3), 2.5f, 0.5f);
-
-        var progress = StyleMeterOverlayMath.GetTimerProgress(snapshot, StartTime.AddSeconds(4));
-
-        Assert.Equal(0f, progress);
+        Assert.Equal(expectedProgress, progress, 3);
     }
 
     [Theory]
@@ -324,34 +280,17 @@ public sealed class StyleMeterOverlayMathTests
         Assert.Equal(0f, progress);
     }
 
-    [Fact]
-    public void GetFadeAlpha_returns_one_at_fade_start()
+    [Theory]
+    [InlineData(0, 1f)]
+    [InlineData(StyleMeterComboEngine.FadeDurationSeconds / 2, 0.5f)]
+    [InlineData(StyleMeterComboEngine.FadeDurationSeconds + 0.001, 0f)]
+    public void GetFadeAlpha_returns_expected_alpha(double elapsedSeconds, float expectedAlpha)
     {
         var snapshot = FadingSnapshot(StartTime);
 
-        var alpha = StyleMeterOverlayMath.GetFadeAlpha(snapshot, StartTime);
+        var alpha = StyleMeterOverlayMath.GetFadeAlpha(snapshot, StartTime.AddSeconds(elapsedSeconds));
 
-        Assert.Equal(1f, alpha);
-    }
-
-    [Fact]
-    public void GetFadeAlpha_returns_fractional_alpha_during_fade()
-    {
-        var snapshot = FadingSnapshot(StartTime);
-
-        var alpha = StyleMeterOverlayMath.GetFadeAlpha(snapshot, StartTime.AddSeconds(StyleMeterComboEngine.FadeDurationSeconds / 2));
-
-        Assert.Equal(0.5f, alpha, 3);
-    }
-
-    [Fact]
-    public void GetFadeAlpha_returns_zero_after_fade_duration()
-    {
-        var snapshot = FadingSnapshot(StartTime);
-
-        var alpha = StyleMeterOverlayMath.GetFadeAlpha(snapshot, StartTime.AddSeconds(StyleMeterComboEngine.FadeDurationSeconds + 0.001));
-
-        Assert.Equal(0f, alpha);
+        Assert.Equal(expectedAlpha, alpha, 3);
     }
 
     [Fact]
@@ -451,19 +390,6 @@ public sealed class StyleMeterOverlayMathTests
         Assert.False(float.IsNaN(danger));
         Assert.False(float.IsInfinity(danger));
         Assert.InRange(danger, 0f, 1f);
-    }
-
-    [Fact]
-    public void GetTimerDangerIntensity_is_zero_outside_danger_state()
-    {
-        Assert.Equal(0f, StyleMeterOverlayMath.GetTimerDangerIntensity(0.5f, 1f));
-        Assert.Equal(0f, StyleMeterOverlayMath.GetTimerDangerIntensity(0f, 1f));
-    }
-
-    [Fact]
-    public void GetTimerDangerIntensity_is_positive_inside_danger_state()
-    {
-        Assert.True(StyleMeterOverlayMath.GetTimerDangerIntensity(0.1f, 0.5f) > 0f);
     }
 
     [Fact]

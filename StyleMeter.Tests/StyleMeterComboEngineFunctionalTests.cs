@@ -96,31 +96,20 @@ public sealed class StyleMeterComboEngineFunctionalTests
         Assert.Equal(clock.UtcNow.AddSeconds(3), snapshot.ExpirationTimeUtc);
     }
 
-    [Fact]
-    public void Tick_before_expiration_keeps_combo_active()
+    [Theory]
+    [InlineData(2.999)]
+    [InlineData(3.0)]
+    public void Tick_at_or_before_expiration_keeps_combo_active(double elapsedSeconds)
     {
         var engine = CreateEngine(out var clock);
         Assert.True(engine.TryRecordGcd(100, 2.5f, out _));
 
-        clock.Set(StartTime.AddSeconds(2.999));
+        clock.Set(StartTime.AddSeconds(elapsedSeconds));
         var changed = engine.Tick();
 
         Assert.False(changed);
         Assert.True(engine.CurrentSnapshot.IsActive);
         Assert.False(engine.CurrentSnapshot.IsFading);
-    }
-
-    [Fact]
-    public void Tick_at_exact_expiration_keeps_combo_active()
-    {
-        var engine = CreateEngine(out var clock);
-        Assert.True(engine.TryRecordGcd(100, 2.5f, out _));
-
-        clock.Set(StartTime.AddSeconds(3));
-        var changed = engine.Tick();
-
-        Assert.False(changed);
-        Assert.True(engine.CurrentSnapshot.IsActive);
     }
 
     [Fact]
