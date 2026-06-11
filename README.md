@@ -57,11 +57,13 @@ The debug plugin DLL is written to:
 
 ## Custom Repository
 
-Use this URL with Dalamud's experimental custom repository setting:
+Use this exact URL with Dalamud's experimental custom repository setting:
 
 ```text
 https://raw.githubusercontent.com/ThePurplePigeon/style-meter/master/repo.json
 ```
+
+Do not use the GitHub page URL for `repo.json`. URLs containing `/blob/` point at the website view, not the raw repository file, and Dalamud cannot import them.
 
 ## Contributing
 
