@@ -1,5 +1,5 @@
 # Changelog
 
-## Unreleased
+## 1.0.0 - 2026-06-11
 
-- Prepare project metadata, CI, and repository files for publication.
+- Initial release.

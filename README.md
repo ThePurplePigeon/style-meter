@@ -37,6 +37,12 @@ Build:
 dotnet build .\StyleMeter.sln
 ```
 
+Build the experimental repository package:
+
+```powershell
+.\scripts\Publish-CustomRepo.ps1
+```
+
 Run tests:
 
 ```powershell
@@ -49,14 +55,13 @@ The debug plugin DLL is written to:
 .\StyleMeter\bin\x64\Debug\StyleMeter.dll
 ```
 
-## Loading as a Dev Plugin
+## Custom Repository
 
-1. Launch the game with Dalamud enabled.
-2. Open `/xlsettings`.
-3. Go to `Experimental`.
-4. Add the full path to `StyleMeter.dll` under Dev Plugin Locations.
-5. Open `/xlplugins`.
-6. Enable `Style Meter` from `Dev Tools > Installed Dev Plugins`.
+Use this URL with Dalamud's experimental custom repository setting:
+
+```text
+https://raw.githubusercontent.com/ThePurplePigeon/style-meter/master/repo.json
+```
 
 ## Contributing
 

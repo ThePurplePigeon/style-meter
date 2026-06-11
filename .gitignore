@@ -20,3 +20,4 @@ docs/PUBLISHING.md
 *.tmp
 *.orig
 *.zip
+!dist/StyleMeter.zip
