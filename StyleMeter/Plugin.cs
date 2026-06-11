@@ -29,6 +29,7 @@ public sealed class Plugin : IDalamudPlugin
 
     public Configuration Configuration { get; init; }
     internal StyleMeterTracker Tracker { get; init; }
+    internal bool PreviewCombatOverlay { get; private set; }
 
     private ConfigWindow ConfigWindow { get; init; }
     private MainWindow MainWindow { get; init; }
@@ -111,7 +112,13 @@ public sealed class Plugin : IDalamudPlugin
     {
         Configuration.ShowOverlay = visible;
         Configuration.Save();
-        MainWindow.IsOpen = visible;
+        SyncMainWindowVisibility();
+    }
+
+    internal void SetPreviewCombatOverlay(bool visible)
+    {
+        PreviewCombatOverlay = visible;
+        SyncMainWindowVisibility();
     }
 
     private void OnCommand(string command, string args)
@@ -141,5 +148,10 @@ public sealed class Plugin : IDalamudPlugin
         }
 
         ToggleMainUi();
+    }
+
+    private void SyncMainWindowVisibility()
+    {
+        MainWindow.IsOpen = Configuration.ShowOverlay || PreviewCombatOverlay;
     }
 }

@@ -10,43 +10,67 @@ public class MainWindow : Window
 {
     private readonly Plugin plugin;
     private readonly StyleMeterOverlayAnimationState animationState = new();
+    private float lastTopCenterAnchorOffsetX;
 
     public MainWindow(Plugin plugin)
         : base(
             "Style Meter###StyleMeterOverlay",
-            ImGuiWindowFlags.NoTitleBar |
-            ImGuiWindowFlags.NoResize |
-            ImGuiWindowFlags.NoCollapse |
-            ImGuiWindowFlags.NoScrollbar |
-            ImGuiWindowFlags.NoScrollWithMouse |
-            ImGuiWindowFlags.AlwaysAutoResize |
-            ImGuiWindowFlags.NoBackground |
-            ImGuiWindowFlags.NoSavedSettings)
+            StyleMeterOverlayWindowFlags.Base)
     {
         this.plugin = plugin;
     }
 
     public override void PreDraw()
     {
-        if (this.plugin.Configuration.LockOverlay)
-        {
-            Flags |= ImGuiWindowFlags.NoMove;
-        }
-        else
-        {
-            Flags &= ~ImGuiWindowFlags.NoMove;
-        }
+        var visibility = StyleMeterOverlayVisibility.Resolve(
+            this.plugin.Configuration.ShowOverlay,
+            this.plugin.Configuration.AutoHideOutsideCombat,
+            this.plugin.Tracker.IsInCombat,
+            this.plugin.PreviewCombatOverlay);
+        Flags = StyleMeterOverlayWindowFlags.Create(
+            StyleMeterOverlayInputMode.Resolve(
+                this.plugin.Configuration.LockOverlay,
+                this.plugin.Configuration.ClickThroughOverlay || !visibility.ShouldDraw,
+                visibility.UsePreviewSnapshot));
     }
 
     public override void Draw()
     {
-        var snapshot = this.plugin.Tracker.CurrentSnapshot;
-        var scale = StyleMeterOverlayMath.NormalizeOverlayScale(this.plugin.Configuration.OverlayScale);
+        var visibility = StyleMeterOverlayVisibility.Resolve(
+            this.plugin.Configuration.ShowOverlay,
+            this.plugin.Configuration.AutoHideOutsideCombat,
+            this.plugin.Tracker.IsInCombat,
+            this.plugin.PreviewCombatOverlay);
+        if (!visibility.ShouldDraw)
+        {
+            return;
+        }
+
         var nowUtc = DateTime.UtcNow;
+        var snapshot = visibility.UsePreviewSnapshot
+            ? StyleMeterPreviewSnapshot.CreateCombat(nowUtc)
+            : this.plugin.Tracker.CurrentSnapshot;
+        var scale = StyleMeterOverlayMath.NormalizeOverlayScale(this.plugin.Configuration.OverlayScale);
+        var options = StyleMeterOverlayOptions.FromConfiguration(this.plugin.Configuration);
         var animationTimeSeconds = ImGui.GetTime();
         var renderState = this.animationState.Update(snapshot, animationTimeSeconds);
+        this.ApplyTopCenterAnchor(snapshot, nowUtc, scale);
 
-        StyleMeterOverlayRenderer.Draw(snapshot, nowUtc, animationTimeSeconds, scale, renderState);
+        StyleMeterOverlayRenderer.Draw(snapshot, nowUtc, animationTimeSeconds, scale, renderState, options);
+    }
+
+    private void ApplyTopCenterAnchor(StyleMeterSnapshot snapshot, DateTime nowUtc, float scale)
+    {
+        var anchorOffsetX = StyleMeterOverlayAnchor.GetTopCenterAnchorOffsetX(snapshot, nowUtc, scale);
+        var offsetDeltaX = anchorOffsetX - this.lastTopCenterAnchorOffsetX;
+        this.lastTopCenterAnchorOffsetX = anchorOffsetX;
+
+        if (MathF.Abs(offsetDeltaX) <= 0.01f)
+        {
+            return;
+        }
+
+        ImGui.SetWindowPos(ImGui.GetWindowPos() + new Vector2(offsetDeltaX, 0f));
     }
 }
 
@@ -57,16 +81,18 @@ internal static class StyleMeterOverlayRenderer
         DateTime nowUtc,
         double animationTimeSeconds,
         float scale,
-        StyleMeterOverlayRenderState renderState = default)
+        StyleMeterOverlayRenderState renderState = default,
+        StyleMeterOverlayOptions? options = null)
     {
         var safeScale = StyleMeterOverlayMath.NormalizeOverlayScale(scale);
+        var safeOptions = StyleMeterOverlayOptions.Normalize(options ?? StyleMeterOverlayOptions.Default);
         if (StyleMeterOverlayMath.ShouldDrawIdle(snapshot))
         {
-            DrawIdle(snapshot, safeScale, animationTimeSeconds);
+            DrawIdle(snapshot, safeScale, animationTimeSeconds, safeOptions);
             return;
         }
 
-        DrawActive(snapshot, nowUtc, animationTimeSeconds, safeScale, renderState);
+        DrawActive(snapshot, nowUtc, animationTimeSeconds, safeScale, renderState, safeOptions);
     }
 
     private static void DrawActive(
@@ -74,11 +100,12 @@ internal static class StyleMeterOverlayRenderer
         DateTime nowUtc,
         double animationTimeSeconds,
         float scale,
-        StyleMeterOverlayRenderState renderState)
+        StyleMeterOverlayRenderState renderState,
+        StyleMeterOverlayOptions options)
     {
         if (snapshot.IsFading)
         {
-            DrawEndingTransition(snapshot, nowUtc, animationTimeSeconds, scale);
+            DrawEndingTransition(snapshot, nowUtc, animationTimeSeconds, scale, options);
             return;
         }
 
@@ -92,9 +119,9 @@ internal static class StyleMeterOverlayRenderer
         var statusChip = layout.Translate(layout.StatusChip, canvasOrigin);
         var bestBlock = layout.Translate(layout.BestBlock, canvasOrigin);
         var timerRail = layout.Translate(layout.TimerRail, canvasOrigin);
-        var alpha = 1f;
-        var pulse = StyleMeterOverlayMath.GetPulseIntensity(animationTimeSeconds);
-        var milestoneFlash = StyleMeterOverlayMath.NormalizeUnit(renderState.MilestoneFlashIntensity);
+        var alpha = options.Opacity;
+        var pulse = StyleMeterOverlayMath.GetPulseIntensity(animationTimeSeconds, options.AnimationIntensity);
+        var milestoneFlash = StyleMeterOverlayMath.NormalizeUnit(renderState.MilestoneFlashIntensity * options.AnimationIntensity);
         var rankAccent = StyleMeterOverlayPalette.GetRankColor(snapshot.Rank, alpha);
         var accent = StyleMeterOverlayPalette.Blend(rankAccent, new Vector4(1f, 1f, 1f, alpha), milestoneFlash * 0.35f);
         var accentSoft = StyleMeterOverlayPalette.GetRankColor(snapshot.Rank, alpha * (0.26f + (pulse * 0.16f)));
@@ -105,8 +132,12 @@ internal static class StyleMeterOverlayRenderer
         DrawPanel(drawList, panel, accent, accentSoft, alpha, scale);
         DrawMilestoneFlash(drawList, panel, rankMedallion, rankAccent, alpha, milestoneFlash, scale);
         DrawRankMedallion(drawList, rankMedallion, snapshot.Rank, accent, alpha, pulse, scale);
-        DrawChainText(drawList, layout, canvasOrigin, snapshot, accent, alpha, scale);
-        DrawBestBlock(drawList, bestBlock, snapshot.BestComboCount, accent, alpha, scale);
+        DrawChainText(drawList, layout, canvasOrigin, snapshot, accent, alpha, scale, options.ShowChainDetails);
+        if (options.ShowBestBlock)
+        {
+            DrawBestBlock(drawList, bestBlock, snapshot.BestComboCount, accent, alpha, scale);
+        }
+
         DrawStatusChip(drawList, statusChip, GetStatusText(snapshot, dangerIntensity), timerColor, alpha, scale);
         DrawTimerRail(drawList, timerRail, timerProgress, timerColor, dangerIntensity, alpha, scale);
     }
@@ -115,7 +146,8 @@ internal static class StyleMeterOverlayRenderer
         StyleMeterSnapshot snapshot,
         DateTime nowUtc,
         double animationTimeSeconds,
-        float scale)
+        float scale,
+        StyleMeterOverlayOptions options)
     {
         var drawList = ImGui.GetWindowDrawList();
         var transitionProgress = StyleMeterOverlayMath.GetEndTransitionProgress(snapshot, nowUtc);
@@ -128,32 +160,36 @@ internal static class StyleMeterOverlayRenderer
         var statusChip = layout.Translate(layout.StatusChip, canvasOrigin);
         var bestBlock = layout.Translate(layout.BestBlock, canvasOrigin);
         var timerRail = layout.Translate(layout.TimerRail, canvasOrigin);
-        var pulse = StyleMeterOverlayMath.GetPulseIntensity(animationTimeSeconds);
-        var activeContentAlpha = StyleMeterOverlayMath.GetEndingActiveContentAlpha(transitionProgress);
-        var idleContentAlpha = StyleMeterOverlayMath.GetEndingIdleContentAlpha(transitionProgress);
-        var panelAlpha = 0.9f;
+        var pulse = StyleMeterOverlayMath.GetPulseIntensity(animationTimeSeconds, options.AnimationIntensity);
+        var activeContentAlpha = StyleMeterOverlayMath.GetEndingActiveContentAlpha(transitionProgress) * options.Opacity;
+        var idleContentAlpha = StyleMeterOverlayMath.GetEndingIdleContentAlpha(transitionProgress) * options.Opacity;
+        var panelAlpha = 0.9f * options.Opacity;
         var rankAccent = StyleMeterOverlayPalette.GetRankColor(snapshot.Rank, panelAlpha);
         var idleAccent = StyleMeterOverlayPalette.GetRankColor("D", panelAlpha);
         var accent = StyleMeterOverlayPalette.Blend(rankAccent, idleAccent, transitionProgress);
+        var softAlpha = options.Opacity * (0.22f + (pulse * 0.08f));
         var accentSoft = StyleMeterOverlayPalette.Blend(
-            StyleMeterOverlayPalette.GetRankColor(snapshot.Rank, 0.22f + (pulse * 0.08f)),
-            StyleMeterOverlayPalette.GetRankColor("D", 0.22f + (pulse * 0.08f)),
+            StyleMeterOverlayPalette.GetRankColor(snapshot.Rank, softAlpha),
+            StyleMeterOverlayPalette.GetRankColor("D", softAlpha),
             transitionProgress);
 
         DrawPanel(drawList, panel, accent, accentSoft, panelAlpha, scale);
-        DrawRankMedallionBase(drawList, rankMedallion, accent, 0.82f, pulse, scale);
+        DrawRankMedallionBase(drawList, rankMedallion, accent, 0.82f * options.Opacity, pulse, scale);
         DrawRankText(drawList, rankMedallion, snapshot.Rank, activeContentAlpha, scale);
         DrawRankText(drawList, rankMedallion, "D", idleContentAlpha, scale);
 
         if (activeContentAlpha > 0.01f)
         {
             var timerColor = StyleMeterOverlayPalette.GetTimerColor(rankAccent, 0f, activeContentAlpha);
-            DrawChainText(drawList, layout, canvasOrigin, snapshot, accent, activeContentAlpha, scale);
+            DrawChainText(drawList, layout, canvasOrigin, snapshot, accent, activeContentAlpha, scale, options.ShowChainDetails);
             DrawStatusChip(drawList, statusChip, "ENDED", timerColor, activeContentAlpha, scale);
             DrawTimerRail(drawList, timerRail, 0f, timerColor, 0f, activeContentAlpha, scale);
         }
 
-        DrawBestBlock(drawList, bestBlock, snapshot.BestComboCount, accent, MathF.Max(activeContentAlpha, idleContentAlpha), scale);
+        if (options.ShowBestBlock)
+        {
+            DrawBestBlock(drawList, bestBlock, snapshot.BestComboCount, accent, MathF.Max(activeContentAlpha, idleContentAlpha), scale);
+        }
 
         if (idleContentAlpha > 0.01f)
         {
@@ -161,7 +197,7 @@ internal static class StyleMeterOverlayRenderer
         }
     }
 
-    private static void DrawIdle(StyleMeterSnapshot snapshot, float scale, double animationTimeSeconds)
+    private static void DrawIdle(StyleMeterSnapshot snapshot, float scale, double animationTimeSeconds, StyleMeterOverlayOptions options)
     {
         var drawList = ImGui.GetWindowDrawList();
         var layout = StyleMeterOverlayLayout.CreateIdle(scale);
@@ -170,12 +206,13 @@ internal static class StyleMeterOverlayRenderer
 
         var panel = layout.Translate(layout.Panel, canvasOrigin);
         var rankMedallion = layout.Translate(layout.RankMedallion, canvasOrigin);
-        var pulse = StyleMeterOverlayMath.GetPulseIntensity(animationTimeSeconds);
-        var accent = StyleMeterOverlayPalette.GetRankColor("D", 0.72f + (pulse * 0.18f));
+        var pulse = StyleMeterOverlayMath.GetPulseIntensity(animationTimeSeconds, options.AnimationIntensity);
+        var alpha = options.Opacity;
+        var accent = StyleMeterOverlayPalette.GetRankColor("D", alpha * (0.72f + (pulse * 0.18f)));
 
-        DrawPanel(drawList, panel, accent, StyleMeterOverlayPalette.GetRankColor("D", 0.22f), 0.9f, scale);
-        DrawRankMedallion(drawList, rankMedallion, "D", accent, 0.85f, pulse, scale);
-        DrawIdleContent(drawList, layout, canvasOrigin, snapshot, accent, 0.92f, scale);
+        DrawPanel(drawList, panel, accent, StyleMeterOverlayPalette.GetRankColor("D", alpha * 0.22f), alpha * 0.9f, scale);
+        DrawRankMedallion(drawList, rankMedallion, "D", accent, alpha * 0.85f, pulse, scale);
+        DrawIdleContent(drawList, layout, canvasOrigin, snapshot, accent, alpha * 0.92f, scale, options.ShowBestBlock);
     }
 
     private static void DrawIdleContent(
@@ -318,7 +355,15 @@ internal static class StyleMeterOverlayRenderer
         drawList.AddRect(panel.Min + Scale(new Vector2(2f, 2f), scale), panel.Max - Scale(new Vector2(2f, 2f), scale), whiteFlash, 9f * scale, ImDrawFlags.None, 1.4f * scale);
     }
 
-    private static void DrawChainText(ImDrawListPtr drawList, StyleMeterOverlayLayout layout, Vector2 canvasOrigin, StyleMeterSnapshot snapshot, Vector4 accent, float alpha, float scale)
+    private static void DrawChainText(
+        ImDrawListPtr drawList,
+        StyleMeterOverlayLayout layout,
+        Vector2 canvasOrigin,
+        StyleMeterSnapshot snapshot,
+        Vector4 accent,
+        float alpha,
+        float scale,
+        bool showChainDetails)
     {
         AddText(drawList, canvasOrigin + layout.LabelPosition, StyleMeterOverlayPalette.ToU32(new Vector4(accent.X, accent.Y, accent.Z, alpha * 0.9f)), "STYLE", StyleMeterOverlayMath.GetLabelTextSize(scale));
         AddText(drawList, canvasOrigin + layout.ChainLabelPosition, StyleMeterOverlayPalette.ToU32(new Vector4(0.74f, 0.81f, 0.92f, alpha * 0.82f)), "CHAIN", StyleMeterOverlayMath.GetLabelTextSize(scale));
@@ -331,7 +376,10 @@ internal static class StyleMeterOverlayRenderer
             StyleMeterOverlayMath.GetChainTextSize(scale),
             alpha,
             scale);
-        AddText(drawList, canvasOrigin + layout.SubLabelPosition, StyleMeterOverlayPalette.ToU32(new Vector4(0.76f, 0.8f, 0.9f, alpha * 0.68f)), StyleMeterOverlayMath.FormatWeaveSummary(snapshot.OffGlobalCooldownCount), StyleMeterOverlayMath.GetSubTextSize(scale));
+        if (showChainDetails)
+        {
+            AddText(drawList, canvasOrigin + layout.SubLabelPosition, StyleMeterOverlayPalette.ToU32(new Vector4(0.76f, 0.8f, 0.9f, alpha * 0.68f)), StyleMeterOverlayMath.FormatWeaveSummary(snapshot.OffGlobalCooldownCount), StyleMeterOverlayMath.GetSubTextSize(scale));
+        }
     }
 
     private static void DrawBestBlock(
@@ -565,6 +613,179 @@ internal static class StyleMeterOverlayRenderer
 internal readonly record struct StyleMeterOverlayRenderState(float MilestoneFlashIntensity)
 {
     public static StyleMeterOverlayRenderState None => default;
+}
+
+internal readonly record struct StyleMeterOverlayOptions(
+    float Opacity,
+    float AnimationIntensity,
+    bool ShowBestBlock,
+    bool ShowChainDetails)
+{
+    public static StyleMeterOverlayOptions Default => new(1f, 1f, true, true);
+
+    public static StyleMeterOverlayOptions FromConfiguration(Configuration configuration)
+    {
+        if (configuration is null)
+        {
+            return Default;
+        }
+
+        return Normalize(new StyleMeterOverlayOptions(
+            configuration.OverlayOpacity,
+            configuration.AnimationIntensity,
+            configuration.ShowBestBlock,
+            configuration.ShowChainDetails));
+    }
+
+    public static StyleMeterOverlayOptions Normalize(StyleMeterOverlayOptions options)
+    {
+        return new StyleMeterOverlayOptions(
+            StyleMeterOverlayMath.NormalizeOverlayOpacity(options.Opacity),
+            StyleMeterOverlayMath.NormalizeAnimationIntensity(options.AnimationIntensity),
+            options.ShowBestBlock,
+            options.ShowChainDetails);
+    }
+}
+
+internal readonly record struct StyleMeterOverlayVisibility(bool ShouldDraw, bool UsePreviewSnapshot)
+{
+    public static StyleMeterOverlayVisibility Resolve(
+        bool showOverlay,
+        bool autoHideOutsideCombat,
+        bool isInCombat,
+        bool previewCombatOverlay)
+    {
+        if (previewCombatOverlay)
+        {
+            return new StyleMeterOverlayVisibility(true, true);
+        }
+
+        if (!showOverlay)
+        {
+            return new StyleMeterOverlayVisibility(false, false);
+        }
+
+        if (autoHideOutsideCombat && !isInCombat)
+        {
+            return new StyleMeterOverlayVisibility(false, false);
+        }
+
+        return new StyleMeterOverlayVisibility(true, false);
+    }
+}
+
+internal static class StyleMeterOverlayWindowFlags
+{
+    public static readonly ImGuiWindowFlags Base =
+        ImGuiWindowFlags.NoTitleBar |
+        ImGuiWindowFlags.NoResize |
+        ImGuiWindowFlags.NoCollapse |
+        ImGuiWindowFlags.NoScrollbar |
+        ImGuiWindowFlags.NoScrollWithMouse |
+        ImGuiWindowFlags.AlwaysAutoResize |
+        ImGuiWindowFlags.NoBackground |
+        ImGuiWindowFlags.NoSavedSettings;
+
+    public static ImGuiWindowFlags Create(bool locked, bool clickThrough)
+    {
+        return Create(StyleMeterOverlayInputMode.Resolve(locked, clickThrough));
+    }
+
+    public static ImGuiWindowFlags Create(StyleMeterOverlayInputMode inputMode)
+    {
+        var flags = Base;
+        if (inputMode.LocksMovement)
+        {
+            flags |= ImGuiWindowFlags.NoMove;
+        }
+
+        if (inputMode.UsesNoInputs)
+        {
+            flags |= ImGuiWindowFlags.NoInputs;
+        }
+
+        return flags;
+    }
+}
+
+internal readonly record struct StyleMeterOverlayInputMode(bool LocksMovement, bool UsesNoInputs)
+{
+    public static StyleMeterOverlayInputMode Resolve(bool locked, bool clickThrough)
+    {
+        return Resolve(locked, clickThrough, forceInteractive: false);
+    }
+
+    public static StyleMeterOverlayInputMode Resolve(bool locked, bool clickThrough, bool forceInteractive)
+    {
+        return new StyleMeterOverlayInputMode(
+            !forceInteractive && (locked || clickThrough),
+            !forceInteractive && clickThrough);
+    }
+}
+
+internal static class StyleMeterPreviewSnapshot
+{
+    public static StyleMeterSnapshot CreateCombat(DateTime nowUtc)
+    {
+        return new StyleMeterSnapshot(
+            50,
+            "S",
+            true,
+            false,
+            2.5f,
+            0.5f,
+            nowUtc.AddSeconds(-1.2),
+            nowUtc.AddSeconds(1.8),
+            DateTime.MinValue,
+            8,
+            58,
+            74);
+    }
+}
+
+internal static class StyleMeterOverlayAnchor
+{
+    public static float GetTopCenterAnchorOffsetX(StyleMeterSnapshot snapshot, DateTime nowUtc, float scale)
+    {
+        var safeScale = StyleMeterOverlayMath.NormalizeOverlayScale(scale);
+        var activeLayout = StyleMeterOverlayLayout.CreateActive(safeScale);
+        var currentLayout = GetCurrentLayout(snapshot, nowUtc, safeScale);
+
+        return GetTopCenterAnchorOffsetX(activeLayout.CanvasSize.X, currentLayout.CanvasSize.X);
+    }
+
+    public static float GetTopCenterAnchorOffsetX(float activeWidth, float currentWidth)
+    {
+        if (!IsFinite(activeWidth) || !IsFinite(currentWidth))
+        {
+            return 0f;
+        }
+
+        return MathF.Max(0f, (activeWidth - currentWidth) * 0.5f);
+    }
+
+    private static StyleMeterOverlayLayout GetCurrentLayout(StyleMeterSnapshot snapshot, DateTime nowUtc, float scale)
+    {
+        if (StyleMeterOverlayMath.ShouldDrawIdle(snapshot))
+        {
+            return StyleMeterOverlayLayout.CreateIdle(scale);
+        }
+
+        if (snapshot.IsFading)
+        {
+            return StyleMeterOverlayLayout.CreateTransition(
+                scale,
+                StyleMeterOverlayMath.GetEndTransitionProgress(snapshot, nowUtc));
+        }
+
+        return StyleMeterOverlayLayout.CreateActive(scale);
+    }
+
+    private static bool IsFinite(float value)
+    {
+        return !float.IsNaN(value) &&
+               !float.IsInfinity(value);
+    }
 }
 
 internal sealed class StyleMeterOverlayAnimationState
@@ -832,6 +1053,46 @@ internal static class StyleMeterOverlayMath
         return Math.Clamp(scale, 0.75f, 2.5f);
     }
 
+    public static float NormalizeOverlayOpacity(float opacity)
+    {
+        if (float.IsNaN(opacity))
+        {
+            return 1f;
+        }
+
+        if (float.IsNegativeInfinity(opacity))
+        {
+            return 0.2f;
+        }
+
+        if (float.IsPositiveInfinity(opacity))
+        {
+            return 1f;
+        }
+
+        return Math.Clamp(opacity, 0.2f, 1f);
+    }
+
+    public static float NormalizeAnimationIntensity(float intensity)
+    {
+        if (float.IsNaN(intensity))
+        {
+            return 1f;
+        }
+
+        if (float.IsNegativeInfinity(intensity))
+        {
+            return 0f;
+        }
+
+        if (float.IsPositiveInfinity(intensity))
+        {
+            return 1.5f;
+        }
+
+        return Math.Clamp(intensity, 0f, 1.5f);
+    }
+
     public static float GetTimerProgress(StyleMeterSnapshot snapshot, DateTime nowUtc)
     {
         if (!snapshot.IsActive || !IsUsableDuration(snapshot.CurrentRecastSeconds))
@@ -899,6 +1160,13 @@ internal static class StyleMeterOverlayMath
         }
 
         return Math.Clamp(0.5f + (0.5f * (float)Math.Sin(animationTimeSeconds * 4.2)), 0f, 1f);
+    }
+
+    public static float GetPulseIntensity(double animationTimeSeconds, float animationIntensity)
+    {
+        var basePulse = GetPulseIntensity(animationTimeSeconds);
+        var safeIntensity = NormalizeAnimationIntensity(animationIntensity);
+        return NormalizeUnit(0.5f + ((basePulse - 0.5f) * safeIntensity));
     }
 
     public static bool IsTimerDanger(float progress)

@@ -1,4 +1,3 @@
-using System;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
@@ -10,11 +9,12 @@ public class ConfigWindow : Window
 {
     private readonly Plugin plugin;
     private readonly Configuration configuration;
+    private bool previewCombatOverlay;
 
     public ConfigWindow(Plugin plugin) : base("Style Meter Configuration###StyleMeterConfig")
     {
-        Flags = ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse;
-        Size = new Vector2(500, 420);
+        Flags = ImGuiWindowFlags.NoCollapse;
+        Size = new Vector2(540, 560);
         SizeCondition = ImGuiCond.FirstUseEver;
 
         this.plugin = plugin;
@@ -29,11 +29,50 @@ public class ConfigWindow : Window
         ImGui.Separator();
         ImGui.Spacing();
 
+        this.DrawVisibilitySection();
+        this.DrawLayoutSection();
+        this.DrawVisualsSection();
+        this.DrawTrackingSection();
+        this.DrawDiagnosticsSection();
+        DrawCommandHelp();
+    }
+
+    public override void OnClose()
+    {
+        this.previewCombatOverlay = false;
+        this.plugin.SetPreviewCombatOverlay(false);
+    }
+
+    private void DrawVisibilitySection()
+    {
+        DrawSectionHeader("Visibility");
+
         var showOverlay = this.configuration.ShowOverlay;
         if (ImGui.Checkbox("Show overlay", ref showOverlay))
         {
             this.plugin.SetOverlayVisible(showOverlay);
         }
+
+        var autoHideOutsideCombat = this.configuration.AutoHideOutsideCombat;
+        if (ImGui.Checkbox("Auto-hide outside combat", ref autoHideOutsideCombat))
+        {
+            this.configuration.AutoHideOutsideCombat = autoHideOutsideCombat;
+            this.configuration.Save();
+        }
+
+        DrawHelpText("When enabled, the HUD is hidden until the player is in the game's combat state.");
+
+        if (ImGui.Checkbox("Preview combat overlay", ref this.previewCombatOverlay))
+        {
+            this.plugin.SetPreviewCombatOverlay(this.previewCombatOverlay);
+        }
+
+        DrawHelpText("Temporarily shows the full combat HUD for positioning. This does not affect tracking.");
+    }
+
+    private void DrawLayoutSection()
+    {
+        DrawSectionHeader("Layout");
 
         var lockOverlay = this.configuration.LockOverlay;
         if (ImGui.Checkbox("Lock overlay position", ref lockOverlay))
@@ -42,6 +81,89 @@ public class ConfigWindow : Window
             this.configuration.Save();
         }
 
+        var clickThroughOverlay = this.configuration.ClickThroughOverlay;
+        if (ImGui.Checkbox("Click through overlay", ref clickThroughOverlay))
+        {
+            this.configuration.ClickThroughOverlay = clickThroughOverlay;
+            this.configuration.Save();
+        }
+
+        DrawHelpText("Click-through also locks movement. Use /stylemeter config if you need to turn it off.");
+
+        var overlayScale = StyleMeterOverlayMath.NormalizeOverlayScale(this.configuration.OverlayScale);
+        if (ImGui.SliderFloat("Overlay scale", ref overlayScale, 0.75f, 2.5f, "%.2f"))
+        {
+            this.configuration.OverlayScale = StyleMeterOverlayMath.NormalizeOverlayScale(overlayScale);
+            this.configuration.Save();
+        }
+    }
+
+    private void DrawVisualsSection()
+    {
+        DrawSectionHeader("Visuals");
+
+        var overlayOpacity = StyleMeterOverlayMath.NormalizeOverlayOpacity(this.configuration.OverlayOpacity);
+        if (ImGui.SliderFloat("Overlay opacity", ref overlayOpacity, 0.2f, 1f, "%.2f"))
+        {
+            this.configuration.OverlayOpacity = StyleMeterOverlayMath.NormalizeOverlayOpacity(overlayOpacity);
+            this.configuration.Save();
+        }
+
+        var animationIntensity = StyleMeterOverlayMath.NormalizeAnimationIntensity(this.configuration.AnimationIntensity);
+        if (ImGui.SliderFloat("Animation intensity", ref animationIntensity, 0f, 1.5f, "%.2f"))
+        {
+            this.configuration.AnimationIntensity = StyleMeterOverlayMath.NormalizeAnimationIntensity(animationIntensity);
+            this.configuration.Save();
+        }
+
+        var showBestBlock = this.configuration.ShowBestBlock;
+        if (ImGui.Checkbox("Show best combo block", ref showBestBlock))
+        {
+            this.configuration.ShowBestBlock = showBestBlock;
+            this.configuration.Save();
+        }
+
+        var showChainDetails = this.configuration.ShowChainDetails;
+        if (ImGui.Checkbox("Show weave detail text", ref showChainDetails))
+        {
+            this.configuration.ShowChainDetails = showChainDetails;
+            this.configuration.Save();
+        }
+
+        if (ImGui.Button("Reset visual settings"))
+        {
+            this.configuration.OverlayScale = 1.4f;
+            this.configuration.OverlayOpacity = 1f;
+            this.configuration.AnimationIntensity = 1f;
+            this.configuration.ShowBestBlock = true;
+            this.configuration.ShowChainDetails = true;
+            this.configuration.Save();
+        }
+    }
+
+    private void DrawTrackingSection()
+    {
+        DrawSectionHeader("Tracking");
+
+        var graceThresholdSeconds = StyleMeterComboEngine.NormalizeGraceThresholdSeconds(this.configuration.GraceThresholdSeconds);
+        if (ImGui.SliderFloat("Grace threshold", ref graceThresholdSeconds, 0f, 2f, "%.2f s"))
+        {
+            this.configuration.GraceThresholdSeconds = graceThresholdSeconds;
+            this.configuration.Save();
+        }
+
+        DrawHelpText("Extra time after the current GCD recast before the chain ends.");
+
+        if (ImGui.Button("Reset meter"))
+        {
+            this.plugin.Tracker.Clear();
+        }
+    }
+
+    private void DrawDiagnosticsSection()
+    {
+        DrawSectionHeader("Diagnostics");
+
         var debugLogging = this.configuration.DebugLogging;
         if (ImGui.Checkbox("Debug logging", ref debugLogging))
         {
@@ -49,58 +171,33 @@ public class ConfigWindow : Window
             this.configuration.Save();
         }
 
-        ImGui.Spacing();
-
-        var overlayScale = this.configuration.OverlayScale;
-        if (ImGui.SliderFloat("Overlay scale", ref overlayScale, 0.75f, 2.5f, "%.2f"))
+        ImGui.SameLine();
+        if (ImGui.Button("Write diagnostics"))
         {
-            this.configuration.OverlayScale = overlayScale;
-            this.configuration.Save();
+            this.plugin.Tracker.LogDiagnostics("config");
         }
+    }
 
-        var graceThresholdSeconds = this.configuration.GraceThresholdSeconds;
-        if (ImGui.SliderFloat("Grace threshold", ref graceThresholdSeconds, 0f, 2f, "%.2f s"))
-        {
-            this.configuration.GraceThresholdSeconds = graceThresholdSeconds;
-            this.configuration.Save();
-        }
-
+    private static void DrawCommandHelp()
+    {
         ImGui.Separator();
-        ImGui.Spacing();
-        ImGui.TextColored(new Vector4(0.82f, 0.88f, 1f, 0.9f), "Preview");
-        ImGui.TextColored(new Vector4(0.62f, 0.68f, 0.78f, 0.82f), "Preview at the current overlay scale.");
-        ImGui.Spacing();
-
-        var nowUtc = DateTime.UtcNow;
-        StyleMeterOverlayRenderer.Draw(CreatePreviewSnapshot(nowUtc), nowUtc, ImGui.GetTime(), overlayScale);
-
-        ImGui.Separator();
-        ImGui.Spacing();
-
-        if (ImGui.Button("Reset meter"))
-        {
-            this.plugin.Tracker.Clear();
-        }
-
         ImGui.Spacing();
         ImGui.TextColored(new Vector4(0.68f, 0.74f, 0.84f, 0.9f), "/stylemeter toggles the overlay.");
         ImGui.TextColored(new Vector4(0.68f, 0.74f, 0.84f, 0.9f), "/stylemeter config opens this window.");
     }
 
-    private static StyleMeterSnapshot CreatePreviewSnapshot(DateTime nowUtc)
+    private static void DrawSectionHeader(string text)
     {
-        return new StyleMeterSnapshot(
-            25,
-            "S",
-            true,
-            false,
-            2.5f,
-            0.5f,
-            nowUtc.AddSeconds(-1.2),
-            nowUtc.AddSeconds(1.8),
-            DateTime.MinValue,
-            8,
-            33,
-            42);
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.TextColored(new Vector4(0.82f, 0.88f, 1f, 0.92f), text);
+        ImGui.Spacing();
+    }
+
+    private static void DrawHelpText(string text)
+    {
+        ImGui.PushTextWrapPos();
+        ImGui.TextColored(new Vector4(0.62f, 0.68f, 0.78f, 0.86f), text);
+        ImGui.PopTextWrapPos();
     }
 }

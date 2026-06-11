@@ -22,6 +22,119 @@ public sealed class StyleMeterOverlayMathTests
     }
 
     [Theory]
+    [InlineData(0.1f, 0.2f)]
+    [InlineData(0.2f, 0.2f)]
+    [InlineData(0.75f, 0.75f)]
+    [InlineData(1f, 1f)]
+    [InlineData(2f, 1f)]
+    [InlineData(float.NegativeInfinity, 0.2f)]
+    [InlineData(float.PositiveInfinity, 1f)]
+    [InlineData(float.NaN, 1f)]
+    public void NormalizeOverlayOpacity_clamps_invalid_and_extreme_values(float opacity, float expected)
+    {
+        Assert.Equal(expected, StyleMeterOverlayMath.NormalizeOverlayOpacity(opacity));
+    }
+
+    [Theory]
+    [InlineData(-1f, 0f)]
+    [InlineData(0f, 0f)]
+    [InlineData(1f, 1f)]
+    [InlineData(1.5f, 1.5f)]
+    [InlineData(2f, 1.5f)]
+    [InlineData(float.NegativeInfinity, 0f)]
+    [InlineData(float.PositiveInfinity, 1.5f)]
+    [InlineData(float.NaN, 1f)]
+    public void NormalizeAnimationIntensity_clamps_invalid_and_extreme_values(float intensity, float expected)
+    {
+        Assert.Equal(expected, StyleMeterOverlayMath.NormalizeAnimationIntensity(intensity));
+    }
+
+    [Theory]
+    [InlineData(false, false, false, false, false)]
+    [InlineData(true, false, false, false, true)]
+    [InlineData(true, true, false, false, false)]
+    [InlineData(true, true, true, false, true)]
+    [InlineData(false, true, false, true, true)]
+    public void Overlay_visibility_respects_autohide_and_preview(
+        bool showOverlay,
+        bool autoHideOutsideCombat,
+        bool isInCombat,
+        bool previewCombatOverlay,
+        bool shouldDraw)
+    {
+        var visibility = StyleMeterOverlayVisibility.Resolve(
+            showOverlay,
+            autoHideOutsideCombat,
+            isInCombat,
+            previewCombatOverlay);
+
+        Assert.Equal(shouldDraw, visibility.ShouldDraw);
+        Assert.Equal(previewCombatOverlay, visibility.UsePreviewSnapshot);
+    }
+
+    [Fact]
+    public void Clickthrough_overlay_flags_also_lock_movement()
+    {
+        var inputMode = StyleMeterOverlayInputMode.Resolve(locked: false, clickThrough: true);
+
+        Assert.True(inputMode.UsesNoInputs);
+        Assert.True(inputMode.LocksMovement);
+    }
+
+    [Fact]
+    public void Locked_overlay_flags_do_not_force_clickthrough()
+    {
+        var inputMode = StyleMeterOverlayInputMode.Resolve(locked: true, clickThrough: false);
+
+        Assert.True(inputMode.LocksMovement);
+        Assert.False(inputMode.UsesNoInputs);
+    }
+
+    [Fact]
+    public void Preview_input_mode_overrides_saved_lock_and_clickthrough()
+    {
+        var inputMode = StyleMeterOverlayInputMode.Resolve(
+            locked: true,
+            clickThrough: true,
+            forceInteractive: true);
+
+        Assert.False(inputMode.LocksMovement);
+        Assert.False(inputMode.UsesNoInputs);
+    }
+
+    [Fact]
+    public void Overlay_options_normalize_values_without_changing_display_toggles()
+    {
+        var options = StyleMeterOverlayOptions.Normalize(new StyleMeterOverlayOptions(
+            float.NaN,
+            float.PositiveInfinity,
+            false,
+            false));
+
+        Assert.Equal(1f, options.Opacity);
+        Assert.Equal(1.5f, options.AnimationIntensity);
+        Assert.False(options.ShowBestBlock);
+        Assert.False(options.ShowChainDetails);
+    }
+
+    [Theory]
+    [InlineData(0, 0f, 0.5f)]
+    [InlineData(0, float.NaN, 0.5f)]
+    [InlineData(double.NaN, 1f, 0.5f)]
+    [InlineData(double.PositiveInfinity, 1.5f, 0.5f)]
+    public void GetPulseIntensity_with_animation_intensity_stays_finite(
+        double animationTimeSeconds,
+        float animationIntensity,
+        float expected)
+    {
+        var pulse = StyleMeterOverlayMath.GetPulseIntensity(animationTimeSeconds, animationIntensity);
+
+        Assert.Equal(expected, pulse);
+        Assert.False(float.IsNaN(pulse));
+        Assert.False(float.IsInfinity(pulse));
+    }
+
+    [Theory]
     [InlineData(0.75f)]
     [InlineData(1f)]
     [InlineData(1.4f)]
@@ -81,6 +194,41 @@ public sealed class StyleMeterOverlayMathTests
         Assert.Equal(active.Panel.Height, StyleMeterOverlayLayout.CreateTransition(1f, 0f).Panel.Height, 3);
         Assert.Equal(idle.Panel.Width, StyleMeterOverlayLayout.CreateTransition(1f, 1f).Panel.Width, 3);
         Assert.Equal(idle.Panel.Height, StyleMeterOverlayLayout.CreateTransition(1f, 1f).Panel.Height, 3);
+    }
+
+    [Theory]
+    [InlineData(0.75f)]
+    [InlineData(1f)]
+    [InlineData(1.4f)]
+    [InlineData(2.5f)]
+    public void Top_center_anchor_offset_keeps_idle_center_aligned_to_active_center(float scale)
+    {
+        var active = StyleMeterOverlayLayout.CreateActive(scale);
+        var idle = StyleMeterOverlayLayout.CreateIdle(scale);
+        var offset = StyleMeterOverlayAnchor.GetTopCenterAnchorOffsetX(active.CanvasSize.X, idle.CanvasSize.X);
+
+        Assert.Equal(active.CanvasSize.X * 0.5f, offset + (idle.CanvasSize.X * 0.5f), 3);
+    }
+
+    [Theory]
+    [InlineData(0f)]
+    [InlineData(0.25f)]
+    [InlineData(0.5f)]
+    [InlineData(1f)]
+    public void Top_center_anchor_offset_tracks_transition_width(float progress)
+    {
+        var active = StyleMeterOverlayLayout.CreateActive(1f);
+        var transition = StyleMeterOverlayLayout.CreateTransition(1f, progress);
+        var offset = StyleMeterOverlayAnchor.GetTopCenterAnchorOffsetX(active.CanvasSize.X, transition.CanvasSize.X);
+
+        Assert.Equal(active.CanvasSize.X * 0.5f, offset + (transition.CanvasSize.X * 0.5f), 3);
+    }
+
+    [Fact]
+    public void Top_center_anchor_offset_handles_invalid_widths()
+    {
+        Assert.Equal(0f, StyleMeterOverlayAnchor.GetTopCenterAnchorOffsetX(float.NaN, 100f));
+        Assert.Equal(0f, StyleMeterOverlayAnchor.GetTopCenterAnchorOffsetX(100f, float.PositiveInfinity));
     }
 
     [Theory]
@@ -179,6 +327,30 @@ public sealed class StyleMeterOverlayMathTests
             7);
 
         Assert.Equal(7, StyleMeterOverlayMath.GetDisplayChainCount(snapshot));
+    }
+
+    [Fact]
+    public void Optional_visual_blocks_do_not_change_chain_or_timer_math()
+    {
+        var snapshot = new StyleMeterSnapshot(
+            4,
+            "D",
+            true,
+            false,
+            2.5f,
+            0.5f,
+            StartTime,
+            StartTime.AddSeconds(3),
+            DateTime.MinValue,
+            3,
+            7,
+            9);
+        var fullOptions = new StyleMeterOverlayOptions(1f, 1f, true, true);
+        var compactOptions = new StyleMeterOverlayOptions(1f, 1f, false, false);
+
+        Assert.Equal(fullOptions.Opacity, compactOptions.Opacity);
+        Assert.Equal(7, StyleMeterOverlayMath.GetDisplayChainCount(snapshot));
+        Assert.Equal(1f, StyleMeterOverlayMath.GetTimerProgress(snapshot, StartTime));
     }
 
     [Fact]

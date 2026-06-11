@@ -89,6 +89,18 @@ public sealed class StyleMeterTrackerOrchestrationTests
     }
 
     [Fact]
+    public void IsInCombat_follows_game_state()
+    {
+        using var harness = TrackerHarness.Create();
+
+        Assert.True(harness.Tracker.IsInCombat);
+
+        harness.GameState.IsInCombatValue = false;
+
+        Assert.False(harness.Tracker.IsInCombat);
+    }
+
+    [Fact]
     public void Out_of_combat_gcd_does_not_update_best_combo()
     {
         using var harness = TrackerHarness.Create();

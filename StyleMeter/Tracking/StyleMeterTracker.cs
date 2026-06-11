@@ -48,6 +48,8 @@ internal sealed class StyleMeterTracker : IDisposable
 
     public StyleMeterSnapshot CurrentSnapshot => this.comboEngine.CurrentSnapshot;
 
+    public bool IsInCombat => this.gameState.IsInCombat;
+
     public void Dispose()
     {
         if (this.disposed)
